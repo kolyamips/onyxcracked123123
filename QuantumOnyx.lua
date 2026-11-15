@@ -22,11 +22,21 @@
 
 local BASE_URL = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/"
 
+-- Blox Fruits = 3 места: Sea 1 / Sea 2 / Sea 3 (+ старый ID из оригинального хаба)
+local BLOX_FRUITS = { 2753915544, 4442272183, 7449423635, 994732206 }
+local function games(list)
+	local t = {}
+	for _, id in ipairs(list) do
+		t[id] = true
+	end
+	return t
+end
+
 -- скрипты: name = подпись, file = путь в репозитории, games = PlaceId'ы
 local SCRIPTS = {
-	{ name = "Blox Fruits", file = "Games/BloxFruits.lua", games = { [994732206] = true } },
-	{ name = "Blox Fruits Premium", file = "scripts/QuantumOnyxPremium.lua", games = { [994732206] = true } },
-	{ name = "Cut Trees", file = "Games/CutTrees.lua", games = { [8191429227] = true } },
+	{ name = "Blox Fruits Premium", file = "scripts/QuantumOnyxPremium.lua", games = games(BLOX_FRUITS), auto = true },
+	{ name = "Blox Fruits", file = "Games/BloxFruits.lua", games = games(BLOX_FRUITS) },
+	{ name = "Cut Trees", file = "Games/CutTrees.lua", games = games({ 8191429227 }) },
 	{ name = "Kick a Lucky Block", file = "Games/KickALuckyBlock.lua", games = {} },
 }
 
@@ -47,6 +57,11 @@ end
 local function loadRemote(path)
 	local url = BASE_URL .. path
 	local body = game:HttpGet(url)
+	-- GitHub на 404 отдаёт HTML-страницу: Luau падает с непонятной ошибкой
+	-- про Unicode, поэтому проверяем явно и показываем нормальный текст
+	if body:find("<html", 1, true) or body:find("<!DOCTYPE", 1, true) then
+		error("404 / HTML instead of Lua: " .. url)
+	end
 	local chunk, err = loadstring(body, path)
 	if not chunk then
 		error("compile error in " .. path .. ": " .. tostring(err))
@@ -109,10 +124,10 @@ make("TextLabel", {
 })
 
 local status = make("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 34),
-	Position = UDim2.fromOffset(12, 288),
+	Size = UDim2.new(1, -24, 0, 40),
+	Position = UDim2.fromOffset(12, 284),
 	BackgroundTransparency = 1,
-	Text = "Выбери скрипт",
+	Text = "Выбери скрипт (или подожди автозапуск)",
 	TextSize = 12,
 	Font = Enum.Font.Gotham,
 	TextColor3 = Color3.fromRGB(160, 160, 172),
@@ -161,6 +176,15 @@ for i, entry in ipairs(SCRIPTS) do
 		run(entry, b)
 	end)
 	buttons[i] = b
+
+	-- автозапуск первого скрипта, подходящего под текущее место
+	if entry.auto and detected then
+		task.delay(2, function()
+			if button.Text ~= "Done" then
+				run(entry, b)
+			end
+		end)
+	end
 end
 
 -- перетаскивание окна (классическая схема через UserInputService)
