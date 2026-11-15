@@ -81,15 +81,18 @@ local card = make("Frame", {
 make("UICorner", { CornerRadius = UDim.new(0, 8), Parent = card })
 make("UIStroke", { Color = Color3.fromRGB(70, 70, 85), Thickness = 1, Parent = card })
 
-make("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 26),
-	Position = UDim2.fromOffset(12, 10),
+-- заголовок служит ручкой перетаскивания (у Frame нет события Input,
+-- перетаскивание вешаем на TextButton)
+local titleButton = make("TextButton", {
+	Size = UDim2.new(1, -24, 0, 28),
+	Position = UDim2.fromOffset(12, 8),
 	BackgroundTransparency = 1,
 	Text = "Quantum Onyx",
 	TextSize = 18,
 	Font = Enum.Font.GothamBold,
 	TextColor3 = Color3.fromRGB(240, 240, 245),
 	TextXAlignment = Enum.TextXAlignment.Left,
+	AutoButtonColor = false,
 	Parent = card,
 })
 
@@ -160,23 +163,29 @@ for i, entry in ipairs(SCRIPTS) do
 	buttons[i] = b
 end
 
--- перетаскивание окна
+-- перетаскивание окна (классическая схема через UserInputService)
 do
-	local dragging, dragInput, dragStart, startPos
-	card.Input.MouseButton1Down:Connect(function(input)
+	local dragging = false
+	local dragStart, startPos
+
+	titleButton.MouseButton1Down:Connect(function()
 		dragging = true
-		dragStart = input.Position
+		dragStart = UserInputService:GetMouseLocation()
 		startPos = card.Position
-		dragInput = input
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
-		end)
 	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
 	UserInputService.InputChanged:Connect(function(input)
-		if input == dragInput and dragging then
-			local delta = input.Position - dragStart
+		if dragging
+			and (input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = UserInputService:GetMouseLocation() - dragStart
 			card.Position = UDim2.new(
 				startPos.X.Scale, startPos.X.Offset + delta.X,
 				startPos.Y.Scale, startPos.Y.Offset + delta.Y)
