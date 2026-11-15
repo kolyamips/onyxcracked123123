@@ -17,6 +17,7 @@
 	  Util/BloxFruitModule/{bypass,HookMeta}.lua
 	  dev/niulai.lua
 	  Games/{BloxFruits,CutTrees,KickALuckyBlock}.lua
+	  Games/QuantumLite.lua   <- рабочая копия без Luarmor
 	  scripts/QuantumOnyxPremium.lua
 --]]
 
@@ -71,7 +72,8 @@ end
 
 -- скрипты: name = подпись, file = путь в репозитории, games = PlaceId'ы
 local SCRIPTS = {
-	{ name = "Blox Fruits Premium", file = "scripts/QuantumOnyxPremium.lua", games = games(BLOX_FRUITS), auto = true },
+	{ name = "QuantumLite (рабочая копия)", file = "Games/QuantumLite.lua", games = games(BLOX_FRUITS), auto = true },
+	{ name = "Blox Fruits Premium", file = "scripts/QuantumOnyxPremium.lua", games = games(BLOX_FRUITS) },
 	{ name = "Blox Fruits", file = "Games/BloxFruits.lua", games = games(BLOX_FRUITS) },
 	{ name = "Cut Trees", file = "Games/CutTrees.lua", games = games({ 8191429227 }) },
 	{ name = "Kick a Lucky Block", file = "Games/KickALuckyBlock.lua", games = {} },
