@@ -86,3 +86,22 @@ Blox Fruits = PlaceId `994732206`. Если игра не определилас
 | `tools/ast_equiv.js` | проверка, что форматирование не изменило семантику |
 
 Полный разбор — в `REPORT.md`.
+
+## Luarmor runtime (обязательный шаг)
+
+Игровые скрипты и премиум читают из окружения служебные значения, которые
+ставит init-рантайм Luarmor v4 (`https://cdn.luarmor.net/v4_init_novemide.lua`).
+Автор грузит его стоковым загрузчиком:
+
+```lua
+loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/0ae9fe4cf963e3a13d25eed0e2ce5940.lua"))()
+```
+
+Лоадер делает это сам (`bootRuntime()`) перед запуском любого скрипта.
+Без рантайма симптомы такие:
+
+* премиум: `[string "scripts/QuantumOnyxPremium.lua"]:106046: You Are Lost!`
+* free: `attempt to index nil with 'RaceList'` / `'QETiqnyEAUPCtf'` / `'ClassName'`
+
+Если рантайм не поднялся, в консоли будет `runtime init failed: ...` — тогда
+скрипты запустятся без него и упадут на первом же обращении к этим значениям.

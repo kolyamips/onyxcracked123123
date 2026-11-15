@@ -22,6 +22,37 @@
 
 local BASE_URL = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/"
 
+-- Luarmor v4 runtime (тот же, что грузит автор: QuantumOnyx.lua -> LoadStockLoader).
+-- Он ставит init-рантайм, который наполняет окружение служебными значениями:
+-- без него скрипты падают на _ENV["RaceList"] / D["<random>"] ("You Are Lost!").
+local STOCK_LOADER_URL = "https://api.luarmor.net/files/v4/loaders/0ae9fe4cf963e3a13d25eed0e2ce5940.lua"
+
+local function bootRuntime()
+	local env = (getgenv and getgenv()) or _G
+	if env.QuantumOnyxRuntime then
+		return true
+	end
+	print("[QuantumOnyx] booting Luarmor v4 runtime...")
+	local ok, err = pcall(function()
+		local body = game:HttpGet(STOCK_LOADER_URL)
+		if type(body) ~= "string" or #body == 0 then
+			error("empty runtime loader response")
+		end
+		local chunk, cerr = loadstring(body, "luarmor-stock-loader")
+		if not chunk then
+			error("runtime compile error: " .. tostring(cerr))
+		end
+		chunk()
+	end)
+	if ok then
+		env.QuantumOnyxRuntime = true
+		print("[QuantumOnyx] runtime ready")
+	else
+		warn("[QuantumOnyx] runtime init failed: " .. tostring(err))
+	end
+	return ok
+end
+
 -- Blox Fruits = 3 места: Sea 1 / Sea 2 / Sea 3 (+ старый ID из оригинального хаба)
 local BLOX_FRUITS = { 2753915544, 4442272183, 7449423635, 994732206 }
 local function games(list)
@@ -166,17 +197,26 @@ local function run(entry, button)
 	status.TextColor3 = Color3.fromRGB(160, 160, 172)
 	print("[QuantumOnyx] run: " .. entry.name .. " (" .. entry.file .. ")")
 	task.spawn(function()
-		local ok, err = pcall(loadRemote, entry.file)
+		local ok, err = pcall(function()
+			bootRuntime()
+			return loadRemote(entry.file)
+		end)
 		if ok then
 			status.Text = "Loaded: " .. entry.name
 			status.TextColor3 = Color3.fromRGB(110, 220, 140)
 			button.Text = "Done"
 			print("[QuantumOnyx] OK: " .. entry.name)
 		else
-			status.Text = tostring(err)
+			local msg = tostring(err)
+			if msg:find("You Are Lost", 1, true) then
+				msg = "VM trap (You Are Lost!) - Luarmor runtime did not inject state"
+			elseif msg:find("attempt to index nil with", 1, true) then
+				msg = msg .. "  [missing runtime global]"
+			end
+			status.Text = msg
 			status.TextColor3 = Color3.fromRGB(240, 120, 120)
 			button.Text = "RETRY"
-			warn("[QuantumOnyx] FAILED " .. entry.name .. ": " .. tostring(err))
+			warn("[QuantumOnyx] FAILED " .. entry.name .. ": " .. msg)
 		end
 	end)
 end
