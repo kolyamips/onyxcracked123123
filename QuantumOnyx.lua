@@ -1,59 +1,47 @@
 --[[
-	Quantum Onyx - clean release loader
-	---------------------------------------
+	Quantum Onyx - open release loader
+	------------------------------------
 	Без key-system, без Luarmor, без обфускации.
-	Один скрипт: вставляешь в эксплойтер, жмёшь LOAD - грузится нужный скрипт.
+	Вставляешь в эксплойтер -> жмёшь кнопку -> грузится скрипт с GitHub.
 
-	Как опубликовать:
-	  1. Залей содержимое scripts/ и lib/ в свой GitHub-репозиторий.
-	  2. Поправь BASE_URL ниже на raw-ссылку на свой репозиторий.
-	     BASE_URL = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/"
-	     (или один раз прогони tools/repoint_urls.py --base <твоя ссылка>)
-	  3. Скрипт грузит файлы по http, поэтому интернет нужен всегда.
-	     Если хочешь грузить локально из workspace эксплойтера -
-	     замени LoadRemote() на чтение readfile().
+	Настройка:
+	  BASE_URL ниже должен указывать на raw-ссылку на твой репозиторий,
+	  где лежат папки Games/, Util/, dev/ и scripts/QuantumOnyxPremium.lua.
+	  Меняется одной строкой (или через tools/repoint_urls.py).
+
+	Структура файлов в репозитории (важно, payload ищет модули по этим путям):
+	  Util/Library.lua
+	  Util/KaitunLibrary.lua
+	  Util/LibraryModule/Themes.lua
+	  Util/BloxFruitModule/Preload/{Data,Visuals,Weebo,UI_Tabs,Funcs,helper}.lua
+	  Util/BloxFruitModule/{bypass,HookMeta}.lua
+	  dev/niulai.lua
+	  Games/{BloxFruits,CutTrees,KickALuckyBlock}.lua
+	  scripts/QuantumOnyxPremium.lua
 --]]
 
 local BASE_URL = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/"
 
--- какие скрипты за что отвечают
+-- скрипты: name = подпись, file = путь в репозитории, games = PlaceId'ы
 local SCRIPTS = {
-	{
-		name = "Blox Fruits",
-		games = { [994732206] = true },
-		file = "scripts/BloxFruits.lua",
-	},
-	{
-		name = "Cut Trees",
-		games = { [8191429227] = true },
-		file = "scripts/CutTrees.lua",
-	},
-	{
-		name = "Kick a Lucky Block",
-		games = { [1627717781] = true },
-		file = "scripts/KickALuckyBlock.lua",
-	},
-	{
-		name = "Quantum Onyx Premium (Blox Fruits)",
-		games = { [994732206] = true },
-		file = "scripts/QuantumOnyxPremium.lua",
-	},
+	{ name = "Blox Fruits", file = "Games/BloxFruits.lua", games = { [994732206] = true } },
+	{ name = "Blox Fruits Premium", file = "scripts/QuantumOnyxPremium.lua", games = { [994732206] = true } },
+	{ name = "Cut Trees", file = "Games/CutTrees.lua", games = { [8191429227] = true } },
+	{ name = "Kick a Lucky Block", file = "Games/KickALuckyBlock.lua", games = {} },
 }
 
 -- --------------------------------------------------------------- utils ---
 
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
-local GameId = game.PlaceId
+local PlaceId = game.PlaceId
 
 local function gameName()
 	local ok, name = pcall(function()
 		return game:GetService("GameSettings").Name
 	end)
-	return ok and name or ("Game " .. GameId)
+	return (ok and name) or ("Place " .. PlaceId)
 end
 
 local function loadRemote(path)
@@ -64,15 +52,6 @@ local function loadRemote(path)
 		error("compile error in " .. path .. ": " .. tostring(err))
 	end
 	return chunk()
-end
-
-local function pickScript()
-	for _, entry in ipairs(SCRIPTS) do
-		if entry.games[GameId] then
-			return entry
-		end
-	end
-	return nil
 end
 
 -- ----------------------------------------------------------------- UI ----
@@ -92,18 +71,18 @@ local function make(class, props)
 end
 
 local card = make("Frame", {
-	Size = UDim2.fromOffset(420, 250),
+	Size = UDim2.fromOffset(460, 330),
 	Position = UDim2.fromScale(0.5, 0.5),
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	BackgroundColor3 = Color3.fromRGB(20, 20, 24),
+	BackgroundColor3 = Color3.fromRGB(18, 18, 22),
 	BorderSizePixel = 0,
 	Parent = screen,
 })
 make("UICorner", { CornerRadius = UDim.new(0, 8), Parent = card })
 make("UIStroke", { Color = Color3.fromRGB(70, 70, 85), Thickness = 1, Parent = card })
 
-local title = make("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 28),
+make("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 26),
 	Position = UDim2.fromOffset(12, 10),
 	BackgroundTransparency = 1,
 	Text = "Quantum Onyx",
@@ -114,86 +93,72 @@ local title = make("TextLabel", {
 	Parent = card,
 })
 
-local subtitle = make("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 20),
-	Position = UDim2.fromOffset(12, 38),
+make("TextLabel", {
+	Size = UDim2.new(1, -24, 0, 18),
+	Position = UDim2.fromOffset(12, 36),
 	BackgroundTransparency = 1,
-	Text = gameName(),
-	TextSize = 13,
+	Text = gameName() .. "  (PlaceId " .. PlaceId .. ")",
+	TextSize = 12,
 	Font = Enum.Font.Gotham,
-	TextColor3 = Color3.fromRGB(150, 150, 160),
+	TextColor3 = Color3.fromRGB(140, 140, 152),
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Parent = card,
 })
 
 local status = make("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 20),
-	Position = UDim2.fromOffset(12, 150),
+	Size = UDim2.new(1, -24, 0, 34),
+	Position = UDim2.fromOffset(12, 288),
 	BackgroundTransparency = 1,
-	Text = "",
-	TextSize = 13,
+	Text = "Выбери скрипт",
+	TextSize = 12,
 	Font = Enum.Font.Gotham,
-	TextColor3 = Color3.fromRGB(200, 200, 210),
+	TextColor3 = Color3.fromRGB(160, 160, 172),
 	TextXAlignment = Enum.TextXAlignment.Left,
+	TextWrapped = true,
 	Parent = card,
 })
 
-local function makeButton(text, y, color)
-	local b = make("TextButton", {
-		Size = UDim2.new(1, -24, 0, 40),
-		Position = UDim2.fromOffset(12, y),
-		BackgroundColor3 = color,
-		BorderSizePixel = 0,
-		Text = text,
-		TextSize = 14,
-		Font = Enum.Font.GothamBold,
-		TextColor3 = Color3.fromRGB(255, 255, 255),
-		AutoButtonColor = true,
-		Parent = card,
-	})
-	make("UICorner", { CornerRadius = UDim.new(0, 6), Parent = b })
-	return b
-end
-
-local detected = pickScript()
+local buttons = {}
 
 local function run(entry, button)
-	if not entry then
-		status.Text = "No script for this game"
-		status.TextColor3 = Color3.fromRGB(240, 120, 120)
-		return
-	end
 	button.Text = "Loading..."
 	status.Text = "Fetching " .. entry.file
-	status.TextColor3 = Color3.fromRGB(200, 200, 210)
+	status.TextColor3 = Color3.fromRGB(160, 160, 172)
 	task.spawn(function()
 		local ok, err = pcall(loadRemote, entry.file)
 		if ok then
-			status.Text = "Loaded"
-			status.TextColor3 = Color3.fromRGB(120, 220, 140)
+			status.Text = "Loaded: " .. entry.name
+			status.TextColor3 = Color3.fromRGB(110, 220, 140)
 			button.Text = "Done"
 		else
 			status.Text = tostring(err)
 			status.TextColor3 = Color3.fromRGB(240, 120, 120)
-			button.Text = "Retry"
+			button.Text = "RETRY"
 		end
 	end)
 end
 
-if detected then
-	local b = makeButton("LOAD " .. detected.name:upper(), 90, Color3.fromRGB(90, 60, 200))
+for i, entry in ipairs(SCRIPTS) do
+	local y = 64 + (i - 1) * 42
+	local detected = entry.games[PlaceId] == true
+	local b = make("TextButton", {
+		Size = UDim2.new(1, -24, 0, 36),
+		Position = UDim2.fromOffset(12, y),
+		BackgroundColor3 = detected and Color3.fromRGB(96, 64, 205) or Color3.fromRGB(52, 52, 62),
+		BorderSizePixel = 0,
+		Text = (detected and "* " or "") .. entry.name,
+		TextSize = 14,
+		Font = Enum.Font.GothamBold,
+		TextColor3 = Color3.fromRGB(245, 245, 250),
+		AutoButtonColor = true,
+		Parent = card,
+	})
+	make("UICorner", { CornerRadius = UDim.new(0, 6), Parent = b })
 	b.MouseButton1Click:Connect(function()
-		run(detected, b)
+		run(entry, b)
 	end)
-else
-	local b = makeButton("GAME NOT SUPPORTED", 90, Color3.fromRGB(70, 70, 80))
+	buttons[i] = b
 end
-
-makeButton("PREMIUM", 138, Color3.fromRGB(200, 60, 90)).MouseButton1Click:Connect(function()
-	local entry = SCRIPTS[#SCRIPTS]
-	local b = makeButton("Loading...", 138, Color3.fromRGB(200, 60, 90))
-	run(entry, b)
-end)
 
 -- перетаскивание окна
 do
@@ -209,15 +174,17 @@ do
 			end
 		end)
 	end)
-	game:GetService("UserInputService").InputChanged:Connect(function(input)
+	UserInputService.InputChanged:Connect(function(input)
 		if input == dragInput and dragging then
 			local delta = input.Position - dragStart
-			card.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			card.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 		end
 	end)
 end
 
--- пересоздать GUI при респавне
+-- GUI пересоздаётся после респавна
 Players.PlayerAdded:Connect(function(plr)
 	plr.CharacterAdded:Connect(function()
 		task.wait(1)
@@ -225,4 +192,4 @@ Players.PlayerAdded:Connect(function(plr)
 	end)
 end)
 
-print("[QuantumOnyx] loader ready, game = " .. gameName() .. " (" .. GameId .. ")")
+print("[QuantumOnyx] loader ready: " .. gameName() .. " (PlaceId " .. PlaceId .. ")")

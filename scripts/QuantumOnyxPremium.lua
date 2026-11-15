@@ -51328,7 +51328,7 @@ return
                                           K = {}
                                         end
                                       else
-                                        j = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/lib/Weebo.lua"
+                                        j = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/Util/BloxFruitModule/Preload/Weebo.lua"
                                         K = "loadstring"
                                         U = D[K]
                                         u = "game"
