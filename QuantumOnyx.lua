@@ -1,90 +1,37 @@
 --[[
-	Quantum Onyx - open release loader
-	------------------------------------
-	Без key-system, без Luarmor, без обфускации.
-	Вставляешь в эксплойтер -> жмёшь кнопку -> грузится скрипт с GitHub.
+	Quantum Onyx Lite - загрузчик
+	-----------------------------
+	Без key-system, без Luarmor, без обфускации: только наш чит.
 
-	Настройка:
-	  BASE_URL ниже должен указывать на raw-ссылку на твой репозиторий,
-	  где лежат папки Games/, Util/, dev/ и scripts/QuantumOnyxPremium.lua.
-	  Меняется одной строкой (или через tools/repoint_urls.py).
+	Запуск:
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/QuantumOnyx.lua"))()
 
-	Структура файлов в репозитории (важно, payload ищет модули по этим путям):
-	  Util/Library.lua
-	  Util/KaitunLibrary.lua
-	  Util/LibraryModule/Themes.lua
-	  Util/BloxFruitModule/Preload/{Data,Visuals,Weebo,UI_Tabs,Funcs,helper}.lua
-	  Util/BloxFruitModule/{bypass,HookMeta}.lua
-	  dev/niulai.lua
-	  Games/{BloxFruits,CutTrees,KickALuckyBlock}.lua
-	  Games/QuantumLite.lua   <- рабочая копия без Luarmor
-	  scripts/QuantumOnyxPremium.lua
+	В репозитории два файла:
+		QuantumOnyx.lua          - этот загрузчик
+		Games/QuantumLite.lua    - сам чит (Blox Fruits)
 --]]
 
 local BASE_URL = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/"
 
--- Luarmor v4 runtime (тот же, что грузит автор: QuantumOnyx.lua -> LoadStockLoader).
--- Он ставит init-рантайм, который наполняет окружение служебными значениями:
--- без него скрипты падают на _ENV["RaceList"] / D["<random>"] ("You Are Lost!").
-local STOCK_LOADER_URL = "https://api.luarmor.net/files/v4/loaders/0ae9fe4cf963e3a13d25eed0e2ce5940.lua"
+local SCRIPT_NAME = "QuantumLite"
+local SCRIPT_FILE = "Games/QuantumLite.lua"
 
--- ВАЖНО: официальный init Luarmor требует валидный script_key (проверка на
--- сервере) и без него показывает окно "Auth Error / You need a script_key".
--- Поэтому по умолчанию рантайм НЕ грузим. Если есть рабочий ключ — поставь
--- здесь true и перед запуском: getgenv().script_key = "<ключ>".
-local BOOT_RUNTIME = false
-
-local function bootRuntime()
-	local env = (getgenv and getgenv()) or _G
-	if env.QuantumOnyxRuntime then
-		return true
-	end
-	print("[QuantumOnyx] booting Luarmor v4 runtime...")
-	local ok, err = pcall(function()
-		local body = game:HttpGet(STOCK_LOADER_URL)
-		if type(body) ~= "string" or #body == 0 then
-			error("empty runtime loader response")
-		end
-		local chunk, cerr = loadstring(body, "luarmor-stock-loader")
-		if not chunk then
-			error("runtime compile error: " .. tostring(cerr))
-		end
-		chunk()
-	end)
-	if ok then
-		env.QuantumOnyxRuntime = true
-		print("[QuantumOnyx] runtime ready")
-	else
-		warn("[QuantumOnyx] runtime init failed: " .. tostring(err))
-	end
-	return ok
-end
-
--- Blox Fruits = 3 места: Sea 1 / Sea 2 / Sea 3 (+ старый ID из оригинального хаба)
+-- Blox Fruits: Sea 1 / Sea 2 / Sea 3 (+ старый ID)
 local BLOX_FRUITS = { 2753915544, 4442272183, 7449423635, 994732206 }
-local function games(list)
-	local t = {}
-	for _, id in ipairs(list) do
-		t[id] = true
-	end
-	return t
-end
 
--- скрипты: name = подпись, file = путь в репозитории, games = PlaceId'ы
-local SCRIPTS = {
-	{ name = "QuantumLite (рабочая копия)", file = "Games/QuantumLite.lua", games = games(BLOX_FRUITS), auto = true },
-	{ name = "Blox Fruits Premium", file = "scripts/QuantumOnyxPremium.lua", games = games(BLOX_FRUITS) },
-	{ name = "Blox Fruits", file = "Games/BloxFruits.lua", games = games(BLOX_FRUITS) },
-	{ name = "Cut Trees", file = "Games/CutTrees.lua", games = games({ 8191429227 }) },
-	{ name = "Kick a Lucky Block", file = "Games/KickALuckyBlock.lua", games = {} },
-}
-
--- --------------------------------------------------------------- utils ---
-
+-- --------------------------------------------------------------- services ---
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local PlaceId = game.PlaceId
+
+local isBloxFruits = false
+for _, id in ipairs(BLOX_FRUITS) do
+	if id == PlaceId then
+		isBloxFruits = true
+		break
+	end
+end
 
 local function gameName()
 	local ok, name = pcall(function()
@@ -93,8 +40,7 @@ local function gameName()
 	return (ok and name) or ("Place " .. PlaceId)
 end
 
--- эксплойтер иногда отдаёт пустой ответ (наблюдалось: fetched 0 bytes
--- при живом GitHub) - ретраим и считаем пустой ответ ошибкой
+-- эксплойтер иногда отдаёт пустой ответ - ретраим
 local function fetch(url)
 	for i = 1, 5 do
 		local ok, body = pcall(function()
@@ -115,8 +61,7 @@ local function loadRemote(path)
 	print("[QuantumOnyx] fetching: " .. url)
 	local body = fetch(url)
 	print("[QuantumOnyx] fetched " .. #body .. " bytes")
-	-- GitHub на 404 отдаёт HTML-страницу: Luau падает с непонятной ошибкой
-	-- про Unicode, поэтому проверяем явно и показываем нормальный текст
+	-- GitHub на 404 отдаёт HTML-страницу
 	if body:find("<html", 1, true) or body:find("<!DOCTYPE", 1, true) then
 		error("404 / HTML instead of Lua: " .. url)
 	end
@@ -125,13 +70,11 @@ local function loadRemote(path)
 		error("compile error in " .. path .. ": " .. tostring(err))
 	end
 	print("[QuantumOnyx] compiled " .. path .. ", running...")
-	local res = { chunk() }
+	chunk()
 	print("[QuantumOnyx] finished " .. path)
-	return unpack(res)
 end
 
--- ----------------------------------------------------------------- UI ----
-
+-- --------------------------------------------------------------------- UI ---
 local screen = Instance.new("ScreenGui")
 screen.Name = "QuantumOnyx"
 screen.ResetOnSpawn = false
@@ -147,7 +90,7 @@ local function make(class, props)
 end
 
 local card = make("Frame", {
-	Size = UDim2.fromOffset(460, 330),
+	Size = UDim2.fromOffset(460, 210),
 	Position = UDim2.fromScale(0.5, 0.5),
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	BackgroundColor3 = Color3.fromRGB(18, 18, 22),
@@ -157,13 +100,12 @@ local card = make("Frame", {
 make("UICorner", { CornerRadius = UDim.new(0, 8), Parent = card })
 make("UIStroke", { Color = Color3.fromRGB(70, 70, 85), Thickness = 1, Parent = card })
 
--- заголовок служит ручкой перетаскивания (у Frame нет события Input,
--- перетаскивание вешаем на TextButton)
+-- заголовок = ручка перетаскивания
 local titleButton = make("TextButton", {
 	Size = UDim2.new(1, -24, 0, 28),
 	Position = UDim2.fromOffset(12, 8),
 	BackgroundTransparency = 1,
-	Text = "Quantum Onyx",
+	Text = "Quantum Onyx Lite",
 	TextSize = 18,
 	Font = Enum.Font.GothamBold,
 	TextColor3 = Color3.fromRGB(240, 240, 245),
@@ -185,10 +127,10 @@ make("TextLabel", {
 })
 
 local status = make("TextLabel", {
-	Size = UDim2.new(1, -24, 0, 40),
-	Position = UDim2.fromOffset(12, 284),
+	Size = UDim2.new(1, -24, 0, 46),
+	Position = UDim2.fromOffset(12, 132),
 	BackgroundTransparency = 1,
-	Text = "Выбери скрипт (или подожди автозапуск)",
+	Text = "Готов к запуску",
 	TextSize = 12,
 	Font = Enum.Font.Gotham,
 	TextColor3 = Color3.fromRGB(160, 160, 172),
@@ -197,73 +139,65 @@ local status = make("TextLabel", {
 	Parent = card,
 })
 
-local buttons = {}
+local button = make("TextButton", {
+	Size = UDim2.new(1, -24, 0, 44),
+	Position = UDim2.fromOffset(12, 76),
+	BackgroundColor3 = Color3.fromRGB(96, 64, 205),
+	BorderSizePixel = 0,
+	Text = "Запустить " .. SCRIPT_NAME,
+	TextSize = 15,
+	Font = Enum.Font.GothamBold,
+	TextColor3 = Color3.fromRGB(245, 245, 250),
+	AutoButtonColor = true,
+	Parent = card,
+})
+make("UICorner", { CornerRadius = UDim.new(0, 6), Parent = button })
 
-local function run(entry, button)
+local running = false
+
+local function run()
+	if running then
+		return
+	end
+	running = true
 	button.Text = "Loading..."
-	status.Text = "Fetching " .. entry.file
+	status.Text = "Загрузка " .. SCRIPT_FILE
 	status.TextColor3 = Color3.fromRGB(160, 160, 172)
-	print("[QuantumOnyx] run: " .. entry.name .. " (" .. entry.file .. ")")
+	print("[QuantumOnyx] run: " .. SCRIPT_FILE)
 	task.spawn(function()
-		local ok, err = pcall(function()
-			if BOOT_RUNTIME then
-				bootRuntime()
-			end
-			return loadRemote(entry.file)
-		end)
+		local ok, err = pcall(loadRemote, SCRIPT_FILE)
 		if ok then
-			status.Text = "Loaded: " .. entry.name
+			status.Text = "Загружено. RightShift - скрыть окно чита."
 			status.TextColor3 = Color3.fromRGB(110, 220, 140)
-			button.Text = "Done"
-			print("[QuantumOnyx] OK: " .. entry.name)
+			button.Text = "Готово"
+			print("[QuantumOnyx] OK: " .. SCRIPT_NAME)
 		else
 			local msg = tostring(err)
-			if msg:find("You Are Lost", 1, true) then
-				msg = "VM trap: нужен Luarmor-runtime (валидный script_key)"
-			elseif msg:find("attempt to index nil with", 1, true) then
-				msg = msg .. "  [нет значения из Luarmor-runtime]"
-			end
 			status.Text = msg
 			status.TextColor3 = Color3.fromRGB(240, 120, 120)
-			button.Text = "RETRY"
-			warn("[QuantumOnyx] FAILED " .. entry.name .. ": " .. msg)
+			button.Text = "ПОВТОРИТЬ"
+			warn("[QuantumOnyx] FAILED: " .. msg)
+			running = false
 		end
 	end)
 end
 
-for i, entry in ipairs(SCRIPTS) do
-	local y = 64 + (i - 1) * 42
-	local detected = entry.games[PlaceId] == true
-	local b = make("TextButton", {
-		Size = UDim2.new(1, -24, 0, 36),
-		Position = UDim2.fromOffset(12, y),
-		BackgroundColor3 = detected and Color3.fromRGB(96, 64, 205) or Color3.fromRGB(52, 52, 62),
-		BorderSizePixel = 0,
-		Text = (detected and "* " or "") .. entry.name,
-		TextSize = 14,
-		Font = Enum.Font.GothamBold,
-		TextColor3 = Color3.fromRGB(245, 245, 250),
-		AutoButtonColor = true,
-		Parent = card,
-	})
-	make("UICorner", { CornerRadius = UDim.new(0, 6), Parent = b })
-	b.MouseButton1Click:Connect(function()
-		run(entry, b)
-	end)
-	buttons[i] = b
+button.MouseButton1Click:Connect(run)
 
-	-- автозапуск первого скрипта, подходящего под текущее место
-	if entry.auto and detected then
-		print("[QuantumOnyx] auto-load " .. entry.file .. " in 2s (PlaceId " .. PlaceId .. ")")
-		task.delay(2, function()
-			if b.Text ~= "Done" then
-				run(entry, b)
-			end
-		end)
-	end
+-- на Blox Fruits запускаем сразу
+if isBloxFruits then
+	print("[QuantumOnyx] auto-load " .. SCRIPT_FILE .. " in 2s")
+	task.delay(2, function()
+		if button.Text ~= "Готово" then
+			run()
+		end
+	end)
+else
+	status.Text = "Не Blox Fruits. Кнопка запускает чит всё равно."
+	status.TextColor3 = Color3.fromRGB(200, 180, 120)
 end
 
--- перетаскивание окна (классическая схема через UserInputService)
+-- перетаскивание окна
 do
 	local dragging = false
 	local dragStart, startPos
@@ -297,7 +231,10 @@ end
 Players.PlayerAdded:Connect(function(plr)
 	plr.CharacterAdded:Connect(function()
 		task.wait(1)
-		screen.Parent = plr:WaitForChild("PlayerGui")
+		local gui = plr:FindFirstChild("PlayerGui")
+		if gui then
+			screen.Parent = gui
+		end
 	end)
 end)
 
