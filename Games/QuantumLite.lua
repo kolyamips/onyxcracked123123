@@ -114,22 +114,32 @@ local function isEnemy(model)
 end
 
 local function collectEnemies(range)
-	local out = {}
-	local function scan(container)
-		if not container then
+	local out, seen = {}, {}
+	local function add(m)
+		if seen[m] or not isEnemy(m) then
 			return
 		end
-		for _, m in ipairs(container:GetChildren()) do
-			if isEnemy(m) then
-				local hrp = m:FindFirstChild("HumanoidRootPart")
-				if not range or dist(hrp) <= range then
-					out[#out + 1] = m
-				end
+		local hrp = m:FindFirstChild("HumanoidRootPart")
+		if not range or dist(hrp) <= range then
+			seen[m] = true
+			out[#out + 1] = m
+		end
+	end
+	for _, m in ipairs(workspace:GetChildren()) do
+		add(m)
+	end
+	local folder = workspace:FindFirstChild("Enemies")
+	if folder then
+		for _, m in ipairs(folder:GetChildren()) do
+			add(m)
+		end
+		-- враги бывают вложены в папки островов
+		for _, m in ipairs(folder:GetDescendants()) do
+			if m:IsA("Model") then
+				add(m)
 			end
 		end
 	end
-	scan(workspace)
-	scan(workspace:FindFirstChild("Enemies"))
 	return out
 end
 
@@ -171,7 +181,7 @@ end
 local chestCache, chestAt = {}, 0
 
 local function findChests(force)
-	if not force and os.clock() - chestAt < 2 then
+	if not force and os.clock() - chestAt < 3 then
 		return chestCache
 	end
 	local out = {}
@@ -257,7 +267,10 @@ local function toolKind(tool)
 	if name:find("fruit") then
 		return "fruit"
 	end
-	if name == "combat" or name == "dark blade" or name == "cutlass" or name == "katana" then
+	if name == "combat" then
+		return "melee"
+	end
+	if name == "dark blade" or name == "cutlass" or name == "katana" or name:find("sword") then
 		return "sword"
 	end
 	return nil
@@ -342,6 +355,20 @@ end
 
 local function buso()
 	commE("Buso")
+end
+
+-- активный квест: читаем заголовок из PlayerGui.Main.Quest
+local function currentQuest()
+	local pg = LocalPlayer:FindFirstChild("PlayerGui")
+	local main = pg and pg:FindFirstChild("Main")
+	local quest = main and main:FindFirstChild("Quest")
+	local container = quest and quest:FindFirstChild("Container")
+	local title = container and container:FindFirstChild("QuestTitle")
+	local label = title and title:FindFirstChild("Title")
+	if label and type(label.Text) == "string" and label.Text ~= "" then
+		return label.Text
+	end
+	return nil
 end
 
 -- ===================================================================== ESP ====
@@ -444,7 +471,8 @@ local function refreshEsp()
 			end
 		end
 		syncEsp("fruit", list, function(part)
-			return bbFor(part, part.Name, Color3.fromRGB(120, 220, 255))
+			local label = part.Parent and part.Parent.Name or part.Name
+			return bbFor(part, label, Color3.fromRGB(120, 220, 255))
 		end)
 	else
 		syncEsp("fruit", {}, function() end)
@@ -922,15 +950,13 @@ end)
 
 UI.toggle(farmPage, "Auto Quest (StartQuest)", false, function(on)
 	setLoop("quest", on, 2, function()
-		if Flags.questBusy then
+		-- не перезапускаем квест, пока он активен: иначе сбрасывается прогресс
+		if currentQuest() then
 			return
 		end
-		Flags.questBusy = true
-		task.wait(0.5)
 		local name = Flags.questName or "Bandit"
 		local level = Flags.questLevel or 1
 		commF("StartQuest", name, level)
-		Flags.questBusy = false
 	end)
 end)
 
@@ -1282,6 +1308,16 @@ UI.toggle(playerPage, "Noclip", false, function(on)
 			end
 		end
 	end)
+	if not on then
+		local char = getChar()
+		if char then
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+					p.CanCollide = true
+				end
+			end
+		end
+	end
 end)
 
 UI.toggle(playerPage, "Anti-AFK", false, function(on)
