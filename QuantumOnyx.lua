@@ -56,7 +56,9 @@ end
 
 local function loadRemote(path)
 	local url = BASE_URL .. path
+	print("[QuantumOnyx] fetching: " .. url)
 	local body = game:HttpGet(url)
+	print("[QuantumOnyx] fetched " .. #body .. " bytes")
 	-- GitHub на 404 отдаёт HTML-страницу: Luau падает с непонятной ошибкой
 	-- про Unicode, поэтому проверяем явно и показываем нормальный текст
 	if body:find("<html", 1, true) or body:find("<!DOCTYPE", 1, true) then
@@ -66,7 +68,10 @@ local function loadRemote(path)
 	if not chunk then
 		error("compile error in " .. path .. ": " .. tostring(err))
 	end
-	return chunk()
+	print("[QuantumOnyx] compiled " .. path .. ", running...")
+	local res = { chunk() }
+	print("[QuantumOnyx] finished " .. path)
+	return unpack(res)
 end
 
 -- ----------------------------------------------------------------- UI ----
@@ -142,16 +147,19 @@ local function run(entry, button)
 	button.Text = "Loading..."
 	status.Text = "Fetching " .. entry.file
 	status.TextColor3 = Color3.fromRGB(160, 160, 172)
+	print("[QuantumOnyx] run: " .. entry.name .. " (" .. entry.file .. ")")
 	task.spawn(function()
 		local ok, err = pcall(loadRemote, entry.file)
 		if ok then
 			status.Text = "Loaded: " .. entry.name
 			status.TextColor3 = Color3.fromRGB(110, 220, 140)
 			button.Text = "Done"
+			print("[QuantumOnyx] OK: " .. entry.name)
 		else
 			status.Text = tostring(err)
 			status.TextColor3 = Color3.fromRGB(240, 120, 120)
 			button.Text = "RETRY"
+			warn("[QuantumOnyx] FAILED " .. entry.name .. ": " .. tostring(err))
 		end
 	end)
 end
@@ -179,8 +187,9 @@ for i, entry in ipairs(SCRIPTS) do
 
 	-- автозапуск первого скрипта, подходящего под текущее место
 	if entry.auto and detected then
+		print("[QuantumOnyx] auto-load " .. entry.file .. " in 2s (PlaceId " .. PlaceId .. ")")
 		task.delay(2, function()
-			if button.Text ~= "Done" then
+			if b.Text ~= "Done" then
 				run(entry, b)
 			end
 		end)
