@@ -54,10 +54,27 @@ local function gameName()
 	return (ok and name) or ("Place " .. PlaceId)
 end
 
+-- эксплойтер иногда отдаёт пустой ответ (наблюдалось: fetched 0 bytes
+-- при живом GitHub) - ретраим и считаем пустой ответ ошибкой
+local function fetch(url)
+	for i = 1, 5 do
+		local ok, body = pcall(function()
+			return game:HttpGet(url)
+		end)
+		if ok and type(body) == "string" and #body > 0 then
+			return body
+		end
+		warn("[QuantumOnyx] fetch " .. i .. "/5 failed ("
+			.. #(tostring(body)) .. " bytes): " .. url)
+		task.wait(1)
+	end
+	error("fetch failed after 5 tries: " .. url)
+end
+
 local function loadRemote(path)
 	local url = BASE_URL .. path
 	print("[QuantumOnyx] fetching: " .. url)
-	local body = game:HttpGet(url)
+	local body = fetch(url)
 	print("[QuantumOnyx] fetched " .. #body .. " bytes")
 	-- GitHub на 404 отдаёт HTML-страницу: Luau падает с непонятной ошибкой
 	-- про Unicode, поэтому проверяем явно и показываем нормальный текст

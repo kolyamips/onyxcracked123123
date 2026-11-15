@@ -107992,8 +107992,7 @@ return
           end
         return
           (q(0xF9CFBD,{}))(l(K))
-      end)
-      (
+      end)(
         D[0x1],
         D[0x2],
         D[0x3],
@@ -108002,7 +108001,6 @@ return
         D[0x6],
         D[0x7]
       )
-  end)
-  (
+  end)(
     ...
   )

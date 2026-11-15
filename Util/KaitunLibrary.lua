@@ -7961,8 +7961,7 @@ return
           end
         return
           (N(14394880,{}))(v(D))
-      end)
-      (
+      end)(
         getfenv and getfenv()or _ENV,
         unpack or table["BackgroundTransparency"],
         newproxy,
@@ -7973,7 +7972,6 @@ return
           ...,
         }
       )
-  end)
-  (
+  end)(
     ...
   )

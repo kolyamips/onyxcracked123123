@@ -21060,8 +21060,7 @@ return
           0
         return
           (y(16577149,{}))(s(I))
-      end)
-      (
+      end)(
         getfenv and getfenv()or _ENV,
         unpack or table["guiName"],
         newproxy,
@@ -21072,7 +21071,6 @@ return
           ...,
         }
       )
-  end)
-  (
+  end)(
     ...
   )

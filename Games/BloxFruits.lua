@@ -120271,8 +120271,7 @@ return
           end
         return
           (n(4023262,{}))(K(V))
-      end)
-      (
+      end)(
         getfenv and getfenv()or _ENV,
         unpack or table["8FbcFgfEOFa5S1"],
         newproxy,
@@ -120283,7 +120282,6 @@ return
           ...,
         }
       )
-  end)
-  (
+  end)(
     ...
   )

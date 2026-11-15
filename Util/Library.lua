@@ -50316,8 +50316,7 @@ return
           end
         return
           (d(13842432,{}))(T(e))
-      end)
-      (
+      end)(
         getfenv and getfenv()or _ENV,
         unpack or table["lt"],
         newproxy,
@@ -50328,7 +50327,6 @@ return
           ...,
         }
       )
-  end)
-  (
+  end)(
     ...
   )

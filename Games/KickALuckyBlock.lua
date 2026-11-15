@@ -3548,8 +3548,7 @@ return
           end
         return
           (l(9375744,{}))(C(g))
-      end)
-      (
+      end)(
         getfenv and getfenv()or _ENV,
         unpack or table["Subtitle"],
         newproxy,
@@ -3560,7 +3559,6 @@ return
           ...,
         }
       )
-  end)
-  (
+  end)(
     ...
   )

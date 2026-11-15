@@ -2692,8 +2692,7 @@ return
           end
         return
           (K(14156800,{}))(E(q))
-      end)
-      (
+      end)(
         getfenv and getfenv()or _ENV,
         unpack or table["7CMjGwyP0eH5Z"],
         newproxy,
@@ -2704,7 +2703,6 @@ return
           ...,
         }
       )
-  end)
-  (
+  end)(
     ...
   )
