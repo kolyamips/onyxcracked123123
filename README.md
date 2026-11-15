@@ -87,21 +87,30 @@ Blox Fruits = PlaceId `994732206`. Если игра не определилас
 
 Полный разбор — в `REPORT.md`.
 
-## Luarmor runtime (обязательный шаг)
+## Luarmor runtime и почему нужен ключ
 
-Игровые скрипты и премиум читают из окружения служебные значения, которые
-ставит init-рантайм Luarmor v4 (`https://cdn.luarmor.net/v4_init_novemide.lua`).
-Автор грузит его стоковым загрузчиком:
+Скрипты читают из окружения служебные значения, которые ставит init-рантайм
+Luarmor v4. Он **требует валидный `script_key`** — проверка на сервере
+`api.luarmor.net`, поэтому без ключа официальный загрузчик показывает:
 
-```lua
-loadstring(game:HttpGet("https://api.luarmor.net/files/v4/loaders/0ae9fe4cf963e3a13d25eed0e2ce5940.lua"))()
+```
+Auth Error
+You need a script_key to access this script. No key found.
 ```
 
-Лоадер делает это сам (`bootRuntime()`) перед запуском любого скрипта.
-Без рантайма симптомы такие:
+В лоадере есть `BOOT_RUNTIME` (по умолчанию `false`). Если появится рабочий
+ключ, включи его и задай ключ до запуска:
 
-* премиум: `[string "scripts/QuantumOnyxPremium.lua"]:106046: You Are Lost!`
-* free: `attempt to index nil with 'RaceList'` / `'QETiqnyEAUPCtf'` / `'ClassName'`
+```lua
+getgenv().script_key = "<ключ>"
+BOOT_RUNTIME = true   -- в коде лоадера
+```
 
-Если рантайм не поднялся, в консоли будет `runtime init failed: ...` — тогда
-скрипты запустятся без него и упадут на первом же обращении к этим значениям.
+Без рантайма симптомы ровно те, что видны в консоли:
+
+* премиум: `:106046: You Are Lost!` — VM ушла в trap, состояние `nil`;
+* free: `attempt to index nil with 'RaceList' / 'QETiqnyEAUPCtf' / 'ClassName'`.
+
+Это не ошибка распаковки: файлы побайтово совпадают с живым репозиторием автора,
+а в payload 1367 таких чтений и ни одной записи — значения приходят только из
+рантайма.

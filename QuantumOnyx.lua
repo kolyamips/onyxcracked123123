@@ -27,6 +27,12 @@ local BASE_URL = "https://raw.githubusercontent.com/kolyamips/onyxcracked123123/
 -- без него скрипты падают на _ENV["RaceList"] / D["<random>"] ("You Are Lost!").
 local STOCK_LOADER_URL = "https://api.luarmor.net/files/v4/loaders/0ae9fe4cf963e3a13d25eed0e2ce5940.lua"
 
+-- ВАЖНО: официальный init Luarmor требует валидный script_key (проверка на
+-- сервере) и без него показывает окно "Auth Error / You need a script_key".
+-- Поэтому по умолчанию рантайм НЕ грузим. Если есть рабочий ключ — поставь
+-- здесь true и перед запуском: getgenv().script_key = "<ключ>".
+local BOOT_RUNTIME = false
+
 local function bootRuntime()
 	local env = (getgenv and getgenv()) or _G
 	if env.QuantumOnyxRuntime then
@@ -198,7 +204,9 @@ local function run(entry, button)
 	print("[QuantumOnyx] run: " .. entry.name .. " (" .. entry.file .. ")")
 	task.spawn(function()
 		local ok, err = pcall(function()
-			bootRuntime()
+			if BOOT_RUNTIME then
+				bootRuntime()
+			end
 			return loadRemote(entry.file)
 		end)
 		if ok then
@@ -209,9 +217,9 @@ local function run(entry, button)
 		else
 			local msg = tostring(err)
 			if msg:find("You Are Lost", 1, true) then
-				msg = "VM trap (You Are Lost!) - Luarmor runtime did not inject state"
+				msg = "VM trap: нужен Luarmor-runtime (валидный script_key)"
 			elseif msg:find("attempt to index nil with", 1, true) then
-				msg = msg .. "  [missing runtime global]"
+				msg = msg .. "  [нет значения из Luarmor-runtime]"
 			end
 			status.Text = msg
 			status.TextColor3 = Color3.fromRGB(240, 120, 120)
