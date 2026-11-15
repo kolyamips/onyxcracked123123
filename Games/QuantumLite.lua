@@ -2,12 +2,11 @@
 	QuantumLite - самостоятельный Blox Fruits хаб
 	---------------------------------------------
 	Своя реализация: без Luarmor, без VM, без ключа и без серверного рантайма.
-	Повторяет набор функций Quantum Onyx по категориям.
 
-	Запуск (или через QuantumOnyx.lua -> "QuantumLite"):
+	Запуск (или через QuantumOnyx.lua -> "Запустить QuantumLite"):
 		loadstring(game:HttpGet("https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/Games/QuantumLite.lua"))()
 
-	Правая Shift - скрыть/показать окно.
+	RightShift - скрыть/показать окно. Клик по строке включает/выключает тумблер.
 --]]
 
 -- ================================================================ services ===
@@ -25,14 +24,15 @@ local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
 -- =================================================================== state ===
-local Flags = {}        -- фича -> вкл/выкл / значение
-local Threads = {}      -- имя цикла -> поток
-local Tight = {}        -- быстрые циклы (меньший шаг)
-local ESPCache = {}     -- kind -> { [instance] = gui }
-local ToggleSetters = {}
+local Flags = {}          -- фича -> вкл/выкл / значение
+local Threads = {}        -- имя цикла -> поток
+local ESPCache = {}       -- kind -> { [instance] = gui | {gui,...} }
+local ToggleSetters = {}  -- сброс всех тумблеров через СТОП
 
+local hitboxCache = {}    -- враг -> исходный размер HRP
 local Waypoint = nil
 local FlyBV, FlyBG, FlyConn
+local FpsLabel
 
 local IS_BLOX_FRUITS = game.PlaceId == 2753915544
 	or game.PlaceId == 4442272183
@@ -110,7 +110,7 @@ local function isEnemy(model)
 		return true
 	end
 	local folder = workspace:FindFirstChild("Enemies")
-	return folder ~= nil and model.Parent == folder
+	return folder ~= nil and model:IsDescendantOf(folder)
 end
 
 local function collectEnemies(range)
@@ -199,7 +199,7 @@ local function findChests(force)
 	return out
 end
 
-local function notify(text, color)
+local function notify(text)
 	print("[QuantumLite] " .. tostring(text))
 	pcall(function()
 		StarterGui:SetCore("SendNotification", {
@@ -254,13 +254,69 @@ local function touch(part)
 	end
 end
 
+-- BodyVelocity-режим (механика из Halloween-скрипта): быстрее твина
+local EvBV, EvBG
+
+local function velocityOn()
+	local hrp = getHRP()
+	if not hrp then
+		return false
+	end
+	if not EvBV or EvBV.Parent == nil then
+		EvBV = Instance.new("BodyVelocity")
+		EvBV.Name = "QLEventBV"
+		EvBV.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+		EvBV.Velocity = Vector3.zero
+		EvBV.Parent = hrp
+		EvBG = Instance.new("BodyGyro")
+		EvBG.Name = "QLEventBG"
+		EvBG.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+		EvBG.P = 1500
+		EvBG.Parent = hrp
+	end
+	return true
+end
+
+local function velocityOff()
+	if EvBV then
+		pcall(function()
+			EvBV:Destroy()
+		end)
+		EvBV = nil
+	end
+	if EvBG then
+		pcall(function()
+			EvBG:Destroy()
+		end)
+		EvBG = nil
+	end
+end
+
+local function velocityTo(part, speed)
+	local hrp = getHRP()
+	if not hrp or not part then
+		return false
+	end
+	if not velocityOn() then
+		return false
+	end
+	local delta = part.Position - hrp.Position
+	if delta.Magnitude < 1 then
+		EvBV.Velocity = Vector3.zero
+	else
+		EvBV.Velocity = delta.Unit * (speed or 120)
+	end
+	EvBG.CFrame = workspace.CurrentCamera.CFrame
+	return delta.Magnitude
+end
+
 -- ================================================================== combat ===
 local function toolKind(tool)
 	local tip = tostring(tool.ToolTip or ""):lower()
 	local kind = tostring(tool:GetAttribute("ToolType") or ""):lower()
 	local name = tool.Name:lower()
 	for _, k in ipairs({ "melee", "sword", "gun" }) do
-		if tip:find(k) or kind:find(k) or name:find(k) then
+		if tip:find(k) or kind:find(k) then
 			return k
 		end
 	end
@@ -372,7 +428,21 @@ local function currentQuest()
 end
 
 -- ===================================================================== ESP ====
-local function syncEsp(kind, items, build)
+local function destroyEsp(value)
+	if type(value) == "table" then
+		for _, o in ipairs(value) do
+			pcall(function()
+				o:Destroy()
+			end)
+		end
+	else
+		pcall(function()
+			value:Destroy()
+		end)
+	end
+end
+
+local function syncEsp(kind, items, build, update)
 	local cache = ESPCache[kind] or {}
 	ESPCache[kind] = cache
 	local present = {}
@@ -380,18 +450,19 @@ local function syncEsp(kind, items, build)
 		if item and item.Parent then
 			present[item] = true
 			if not cache[item] then
-				local ok, gui = pcall(build, item)
-				if ok and gui then
-					cache[item] = gui
+				local ok, made = pcall(build, item)
+				if ok and made then
+					cache[item] = made
 				end
+			end
+			if update and cache[item] then
+				pcall(update, item, cache[item])
 			end
 		end
 	end
-	for obj, gui in pairs(cache) do
+	for obj, value in pairs(cache) do
 		if not present[obj] or not obj.Parent then
-			pcall(function()
-				gui:Destroy()
-			end)
+			destroyEsp(value)
 			cache[obj] = nil
 		end
 	end
@@ -419,6 +490,7 @@ local function bbFor(part, text, color)
 	bb.StudsOffset = Vector3.new(0, 2.5, 0)
 	bb.MaxDistance = 2000
 	local label = Instance.new("TextLabel")
+	label.Name = "Label"
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
 	label.Text = text
@@ -431,6 +503,31 @@ local function bbFor(part, text, color)
 	return bb
 end
 
+local function labelOf(gui)
+	return gui:FindFirstChild("Label")
+end
+
+local function nameEsp(model, color)
+	-- подсветка + табличка с именем и дистанцией (текст обновляется в update)
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	local out = { hlFor(model, color) }
+	if hrp then
+		out[#out + 1] = bbFor(hrp, model.Name, color)
+	end
+	return out
+end
+
+local function updateNameEsp(model, value)
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	local bb = type(value) == "table" and value[2] or nil
+	if bb and hrp then
+		local label = labelOf(bb)
+		if label then
+			label.Text = model.Name .. "  ·  " .. math.floor(dist(hrp)) .. "m"
+		end
+	end
+end
+
 local function refreshEsp()
 	if Flags.espPlayers then
 		local list = {}
@@ -440,16 +537,16 @@ local function refreshEsp()
 			end
 		end
 		syncEsp("player", list, function(model)
-			return hlFor(model, Color3.fromRGB(255, 95, 95))
-		end)
+			return nameEsp(model, Color3.fromRGB(255, 95, 95))
+		end, updateNameEsp)
 	else
 		syncEsp("player", {}, function() end)
 	end
 
 	if Flags.espEnemies then
 		syncEsp("enemy", collectEnemies(), function(model)
-			return hlFor(model, Color3.fromRGB(255, 170, 60))
-		end)
+			return nameEsp(model, Color3.fromRGB(255, 170, 60))
+		end, updateNameEsp)
 	else
 		syncEsp("enemy", {}, function() end)
 	end
@@ -501,6 +598,18 @@ local function setLoop(name, on, interval, fn)
 	end
 end
 
+local function restoreHitboxes()
+	for model, size in pairs(hitboxCache) do
+		local hrp = model and model.FindFirstChild and model:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			pcall(function()
+				hrp.Size = size
+			end)
+		end
+	end
+	hitboxCache = {}
+end
+
 local function stopAll()
 	for k in pairs(Flags) do
 		Flags[k] = false
@@ -508,13 +617,12 @@ local function stopAll()
 	for k in pairs(Threads) do
 		Threads[k] = nil
 	end
-	for kind in pairs(ESPCache) do
-		ESPCache[kind] = {}
-	end
+	ESPCache = {}
 	syncEsp("player", {}, function() end)
 	syncEsp("enemy", {}, function() end)
 	syncEsp("chest", {}, function() end)
 	syncEsp("fruit", {}, function() end)
+	restoreHitboxes()
 	if FlyConn then
 		pcall(function()
 			FlyConn:Disconnect()
@@ -529,10 +637,18 @@ local function stopAll()
 		end
 	end
 	FlyBV, FlyBG = nil, nil
-	pcall(function()
-		VirtualUser:CaptureController()
-		VirtualUser:ReleaseAllButtons()
-	end)
+	velocityOff()
+	if FpsLabel then
+		pcall(function()
+			if Flags.fpsConn then
+				Flags.fpsConn:Disconnect()
+			end
+		end)
+		pcall(function()
+			FpsLabel:Destroy()
+		end)
+		FpsLabel = nil
+	end
 end
 
 -- ====================================================================== UI ===
@@ -540,6 +656,7 @@ local Theme = {
 	bg = Color3.fromRGB(18, 18, 22),
 	panel = Color3.fromRGB(26, 26, 32),
 	row = Color3.fromRGB(36, 36, 44),
+	rowHover = Color3.fromRGB(46, 46, 56),
 	accent = Color3.fromRGB(120, 80, 230),
 	ok = Color3.fromRGB(90, 200, 150),
 	text = Color3.fromRGB(240, 240, 245),
@@ -563,11 +680,12 @@ local screen = new("ScreenGui", {
 	ResetOnSpawn = false,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 	IgnoreGuiInset = true,
+	DisplayOrder = 999,
 })
 
 local main = new("Frame", {
-	Size = UDim2.fromOffset(560, 430),
-	Position = UDim2.new(0.5, -280, 0.5, -215),
+	Size = UDim2.fromOffset(560, 460),
+	Position = UDim2.new(0.5, -280, 0.5, -230),
 	BackgroundColor3 = Theme.bg,
 	BorderSizePixel = 0,
 }, screen)
@@ -657,13 +775,15 @@ local function addTab(name)
 
 	local page = new("ScrollingFrame", {
 		Name = name,
-		Size = UDim2.new(1, -28, 1, -104),
+		Size = UDim2.new(1, -28, 1, -122),
 		Position = UDim2.fromOffset(14, 80),
 		BackgroundColor3 = Theme.panel,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 4,
 		ScrollBarImageColor3 = Theme.accent,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Visible = false,
 	}, main)
 	new("UICorner", { CornerRadius = UDim.new(0, 8) }, page)
@@ -690,6 +810,7 @@ local function row(page, height)
 		Size = UDim2.new(1, -8, 0, height or 34),
 		BackgroundColor3 = Theme.row,
 		BorderSizePixel = 0,
+		Active = true,
 	}, page)
 	new("UICorner", { CornerRadius = UDim.new(0, 6) }, holder)
 	return holder
@@ -699,7 +820,9 @@ local UI = {}
 
 function UI.toggle(page, text, default, callback)
 	local h = row(page, 34)
-	new("TextLabel", {
+
+	local state = default and true or false
+	local label = new("TextButton", {
 		Size = UDim2.new(1, -70, 1, 0),
 		Position = UDim2.fromOffset(10, 0),
 		BackgroundTransparency = 1,
@@ -709,9 +832,9 @@ function UI.toggle(page, text, default, callback)
 		TextColor3 = Theme.text,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
+		AutoButtonColor = false,
 	}, h)
 
-	local state = default and true or false
 	local knob = new("TextButton", {
 		Size = UDim2.fromOffset(44, 22),
 		Position = UDim2.new(1, -54, 0.5, -11),
@@ -738,6 +861,15 @@ function UI.toggle(page, text, default, callback)
 	end
 	knob.MouseButton1Click:Connect(function()
 		set(not state)
+	end)
+	-- вся строка кликабельна
+	label.MouseButton1Click:Connect(function()
+		set(not state)
+	end)
+	h.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			set(not state)
+		end
 	end)
 	if default then
 		task.defer(function()
@@ -792,6 +924,7 @@ function UI.slider(page, text, min, max, default, callback)
 		Position = UDim2.new(0, 10, 1, -14),
 		BackgroundColor3 = Color3.fromRGB(55, 55, 68),
 		BorderSizePixel = 0,
+		Active = true,
 	}, h)
 	new("UICorner", { CornerRadius = UDim.new(0, 5) }, bar)
 
@@ -803,8 +936,9 @@ function UI.slider(page, text, min, max, default, callback)
 	new("UICorner", { CornerRadius = UDim.new(0, 5) }, fill)
 
 	local dragging = false
-	local function apply(x)
-		local rel = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
+	local function apply(mouseX)
+		local width = math.max(bar.AbsoluteSize.X, 1)
+		local rel = math.clamp((mouseX - bar.AbsolutePosition.X) / width, 0, 1)
 		local value = math.floor(min + (max - min) * rel + 0.5)
 		fill.Size = UDim2.fromScale(rel, 1)
 		caption.Text = text .. ": " .. tostring(value)
@@ -814,18 +948,22 @@ function UI.slider(page, text, min, max, default, callback)
 		end
 	end
 	bar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			apply(input.Position.X)
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		if dragging
+			and (input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch) then
 			apply(input.Position.X)
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
 		end
 	end)
@@ -900,9 +1038,13 @@ end)
 -- ------------------------------------------------------------------- Farm ---
 local farmPage = addTab("Farm")
 
+UI.slider(farmPage, "Радиус фарма", 50, 1000, 250, function(v)
+	Flags.farmRadius = v
+end)
+
 UI.toggle(farmPage, "Auto Farm Level (ближайший моб)", false, function(on)
 	setLoop("farm", on, 0.15, function()
-		local target = nearestEnemy(250)
+		local target = nearestEnemy(Flags.farmRadius or 250)
 		if not target then
 			return
 		end
@@ -912,6 +1054,25 @@ UI.toggle(farmPage, "Auto Farm Level (ближайший моб)", false, functi
 			tweenTo(hrp.CFrame * CFrame.new(0, 0, 2), 0.12)
 		end
 		attackBurst(2, 0.05)
+	end)
+end)
+
+UI.slider(farmPage, "Радиус Bring", 50, 400, 150, function(v)
+	Flags.bringRange = v
+end)
+
+UI.toggle(farmPage, "Bring Mobs (стянуть мобов)", false, function(on)
+	setLoop("bring", on, 0.3, function()
+		local my = getHRP()
+		if not my then
+			return
+		end
+		for _, m in ipairs(collectEnemies(Flags.bringRange or 150)) do
+			local hrp = m:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				hrp.CFrame = my.CFrame * CFrame.new(0, 0, -4)
+			end
+		end
 	end)
 end)
 
@@ -944,6 +1105,80 @@ UI.toggle(farmPage, "Auto Fruit", false, function(on)
 	end)
 end)
 
+-- ивент-сбор: механика взята у BloxFruitsHalloween (workspace.PumpkinHunt
+-- + BodyVelocity к ближайшей модели)
+UI.textbox(farmPage, "Имя папки ивента в workspace", Flags.eventFolder or "PumpkinHunt", function(text)
+	Flags.eventFolder = text
+	setStatus("Ивент-папка: " .. text, Theme.ok)
+end)
+
+UI.button(farmPage, "PumpkinHunt (Хэллоуин)", function()
+	Flags.eventFolder = "PumpkinHunt"
+	local f = workspace:FindFirstChild("PumpkinHunt")
+	if f then
+		setStatus("Папка PumpkinHunt найдена", Theme.ok)
+	else
+		setStatus("PumpkinHunt не найден — ивент не активен?", Theme.muted)
+	end
+end)
+
+UI.slider(farmPage, "Скорость ивент-сбора", 20, 300, 120, function(v)
+	Flags.eventSpeed = v
+end)
+
+UI.toggle(farmPage, "Auto Collect (ивент-модели)", false, function(on)
+	setLoop("eventcollect", on, 0.1, function()
+		local folder = workspace:FindFirstChild(Flags.eventFolder or "PumpkinHunt")
+		if not folder then
+			return
+		end
+		local my = getHRP()
+		if not my then
+			return
+		end
+		local best, bestD = nil, math.huge
+		for _, m in ipairs(folder:GetChildren()) do
+			local p
+			if m:IsA("Model") then
+				p = m.PrimaryPart or partOf(m)
+			elseif m:IsA("BasePart") then
+				p = m
+			end
+			if p then
+				local d = dist(p)
+				if d < bestD then
+					best, bestD = p, d
+				end
+			end
+		end
+		if not best then
+			return
+		end
+		if bestD > 4 then
+			if Flags.eventFly then
+				velocityTo(best, Flags.eventSpeed or 120)
+			else
+				moveToPart(best, 0)
+			end
+		else
+			if Flags.eventFly then
+				velocityOff()
+			end
+			touch(best)
+		end
+	end)
+	if not on then
+		velocityOff()
+	end
+end)
+
+UI.toggle(farmPage, "Ивент через BodyVelocity", false, function(on)
+	Flags.eventFly = on
+	if not on then
+		velocityOff()
+	end
+end)
+
 UI.toggle(farmPage, "Auto Haki (Buso)", false, function(on)
 	setLoop("buso", on, 4, buso)
 end)
@@ -974,6 +1209,22 @@ UI.button(farmPage, "Сдать квест (CompleteQuest)", function()
 	setStatus("CompleteQuest: " .. tostring(res), Theme.ok)
 end)
 
+UI.toggle(farmPage, "Auto Stats (вкачивать очки)", false, function(on)
+	setLoop("stats", on, 2, function()
+		local data = LocalPlayer:FindFirstChild("Data")
+		local points = data and data:FindFirstChild("Points")
+		local n = points and tonumber(points.Value) or 0
+		if n > 0 then
+			commF("AddPoint", Flags.statName or "Melee", n)
+		end
+	end)
+end)
+
+UI.textbox(farmPage, "Стат: Melee / Defense / Sword / Gun / Demon Fruit", "Melee", function(text)
+	Flags.statName = text
+	setStatus("Стат: " .. text, Theme.ok)
+end)
+
 UI.button(farmPage, "Собрать ближайший сундук", function()
 	local best, bestD = nil, math.huge
 	for _, p in ipairs(findChests(true)) do
@@ -993,6 +1244,21 @@ end)
 
 -- ----------------------------------------------------------------- Combat ---
 local combatPage = addTab("Combat")
+
+UI.slider(combatPage, "Радиус Kill Aura", 5, 150, 30, function(v)
+	Flags.auraRadius = v
+end)
+
+UI.toggle(combatPage, "Kill Aura", false, function(on)
+	setLoop("aura", on, 0.15, function()
+		local radius = Flags.auraRadius or 30
+		if #collectEnemies(radius) == 0 then
+			return
+		end
+		equip("melee")
+		attack()
+	end)
+end)
 
 UI.toggle(combatPage, "Fast Attack", false, function(on)
 	setLoop("fastattack", on, 0.1, function()
@@ -1019,19 +1285,31 @@ UI.toggle(combatPage, "Auto Equip Gun", false, function(on)
 	end)
 end)
 
-UI.slider(combatPage, "Радиус Kill Aura", 5, 150, 30, function(v)
-	Flags.auraRadius = v
+UI.slider(combatPage, "Размер хитбокса", 2, 60, 12, function(v)
+	Flags.hitboxSize = v
 end)
 
-UI.toggle(combatPage, "Kill Aura", false, function(on)
-	setLoop("aura", on, 0.15, function()
-		local radius = Flags.auraRadius or 30
-		if #collectEnemies(radius) == 0 then
-			return
+UI.toggle(combatPage, "Hitbox Expander", false, function(on)
+	setLoop("hitbox", on, 0.25, function()
+		local s = Flags.hitboxSize or 12
+		for _, m in ipairs(collectEnemies(250)) do
+			local hrp = m:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				if not hitboxCache[m] then
+					hitboxCache[m] = hrp.Size
+				end
+				hrp.Size = Vector3.new(s, s, s)
+				hrp.CanCollide = false
+			end
 		end
-		equip("melee")
-		attack()
 	end)
+	if not on then
+		restoreHitboxes()
+	end
+end)
+
+UI.slider(combatPage, "Радиус Aimbot", 50, 1000, 300, function(v)
+	Flags.aimRange = v
 end)
 
 UI.toggle(combatPage, "Aimbot (камера)", false, function(on)
@@ -1041,13 +1319,9 @@ UI.toggle(combatPage, "Aimbot (камера)", false, function(on)
 		if not hrp then
 			return
 		end
-		local eye = workspace.CurrentCamera.CFrame.Position
-		workspace.CurrentCamera.CFrame = CFrame.lookAt(eye, hrp.Position)
+		local cam = workspace.CurrentCamera
+		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, hrp.Position)
 	end)
-end)
-
-UI.slider(combatPage, "Радиус Aimbot", 50, 1000, 300, function(v)
-	Flags.aimRange = v
 end)
 
 UI.button(combatPage, "Ударить ближайшего", function()
@@ -1068,12 +1342,12 @@ end)
 -- ----------------------------------------------------------------- Visual ---
 local visualPage = addTab("Visual")
 
-UI.toggle(visualPage, "ESP Players", false, function(on)
+UI.toggle(visualPage, "ESP Players (имя + дистанция)", false, function(on)
 	Flags.espPlayers = on
 	refreshEsp()
 end)
 
-UI.toggle(visualPage, "ESP Enemies", true, function(on)
+UI.toggle(visualPage, "ESP Enemies (имя + дистанция)", true, function(on)
 	Flags.espEnemies = on
 	refreshEsp()
 end)
@@ -1105,9 +1379,15 @@ UI.toggle(visualPage, "Fruit Notifier", false, function(on)
 		for _, f in ipairs(findFruits()) do
 			if not Flags.seenFruits[f] then
 				Flags.seenFruits[f] = true
-				notify("Фрукт: " .. f.Name, Theme.accent)
+				notify("Фрукт: " .. f.Name)
 			end
 		end
+	end)
+end)
+
+UI.slider(visualPage, "FOV камеры", 60, 120, 70, function(v)
+	pcall(function()
+		workspace.CurrentCamera.FieldOfView = v
 	end)
 end)
 
@@ -1196,11 +1476,19 @@ UI.button(tpPage, "Вернуться к точке", function()
 	end
 end)
 
-UI.button(tpPage, "Вверх на 500 (sky)", function()
+UI.button(tpPage, "Вверх на 500", function()
 	local hrp = getHRP()
 	if hrp then
 		hrp.CFrame = hrp.CFrame + Vector3.new(0, 500, 0)
 		setStatus("Поднялся на 500", Theme.ok)
+	end
+end)
+
+UI.button(tpPage, "Вниз на 500", function()
+	local hrp = getHRP()
+	if hrp then
+		hrp.CFrame = hrp.CFrame - Vector3.new(0, 500, 0)
+		setStatus("Спустился на 500", Theme.ok)
 	end
 end)
 
@@ -1219,6 +1507,7 @@ local playerList = new("Frame", {
 	Size = UDim2.new(1, -8, 0, 92),
 	BackgroundColor3 = Theme.panel,
 	BorderSizePixel = 0,
+	ClipsDescendants = true,
 }, tpPage)
 new("UICorner", { CornerRadius = UDim.new(0, 6) }, playerList)
 new("UIListLayout", { Padding = UDim.new(0, 4) }, playerList)
@@ -1284,7 +1573,7 @@ end)
 
 UI.toggle(playerPage, "Infinite Jump", false, function(on)
 	Flags.infJump = on
-	if on and not (Flags.infJumpConn) then
+	if on and not Flags.infJumpConn then
 		Flags.infJumpConn = true
 		UserInputService.JumpRequest:Connect(function()
 			if Flags.infJump then
@@ -1317,6 +1606,32 @@ UI.toggle(playerPage, "Noclip", false, function(on)
 				end
 			end
 		end
+	end
+end)
+
+UI.toggle(playerPage, "Click TP (Ctrl + ЛКМ)", false, function(on)
+	if on and not Flags.clickTpConn then
+		Flags.clickTpConn = true
+		UserInputService.InputBegan:Connect(function(input, processed)
+			if processed or not Flags.clickTpConn then
+				return
+			end
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				and UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+				local cam = workspace.CurrentCamera
+				local loc = UserInputService:GetMouseLocation()
+				local ray = cam:ViewportPointToRay(loc.X, loc.Y)
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { getChar() }
+				local hit = workspace:Raycast(ray.Origin, ray.Direction * 2000, params)
+				local my = getHRP()
+				if hit and my then
+					my.CFrame = CFrame.new(hit.Position + Vector3.new(0, 3, 0))
+					setStatus("Click TP", Theme.ok)
+				end
+			end
+		end)
 	end
 end)
 
@@ -1395,6 +1710,18 @@ UI.slider(playerPage, "Fly Speed", 20, 300, 80, function(v)
 	Flags.flySpeed = v
 end)
 
+UI.button(playerPage, "Сбросить скорость/прыжок", function()
+	Flags.speed = 16
+	Flags.jump = 50
+	local hum = getHum()
+	if hum then
+		hum.WalkSpeed = 16
+		hum.UseJumpPower = true
+		hum.JumpPower = 50
+	end
+	setStatus("Скорость 16, прыжок 50", Theme.ok)
+end)
+
 UI.button(playerPage, "Респавн", function()
 	local hum = getHum()
 	if hum then
@@ -1404,6 +1731,49 @@ end)
 
 -- ------------------------------------------------------------------- Misc ---
 local miscPage = addTab("Misc")
+
+UI.toggle(miscPage, "FPS + Ping (оверлей)", false, function(on)
+	if on and not FpsLabel then
+		FpsLabel = new("TextLabel", {
+			Size = UDim2.fromOffset(220, 24),
+			Position = UDim2.new(0.5, -110, 0, 6),
+			BackgroundColor3 = Color3.fromRGB(18, 18, 22),
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			Text = "FPS --  |  Ping --",
+			TextSize = 13,
+			Font = Enum.Font.GothamBold,
+			TextColor3 = Theme.text,
+		}, screen)
+		new("UICorner", { CornerRadius = UDim.new(0, 6) }, FpsLabel)
+
+		local frames = 0
+		Flags.fpsConn = RunService.RenderStepped:Connect(function()
+			frames = frames + 1
+		end)
+		task.spawn(function()
+			while FpsLabel do
+				task.wait(1)
+				local ping = 0
+				pcall(function()
+					ping = LocalPlayer:GetNetworkPing() * 1000
+				end)
+				FpsLabel.Text = ("FPS %d  |  Ping %d ms"):format(frames, ping)
+				frames = 0
+			end
+		end)
+	elseif not on and FpsLabel then
+		pcall(function()
+			if Flags.fpsConn then
+				Flags.fpsConn:Disconnect()
+			end
+		end)
+		pcall(function()
+			FpsLabel:Destroy()
+		end)
+		FpsLabel = nil
+	end
+end)
 
 UI.button(miscPage, "Server Hop", function()
 	setStatus("Ищу сервер...", Theme.muted)
