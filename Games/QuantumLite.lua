@@ -217,6 +217,11 @@ local function setStatus(text, color)
 end
 
 -- ================================================================ movement ===
+-- лимит передвижения в Blox Fruits: твин/полёт <= 250 стадов,
+-- дальше - прыжки по 180 стадов мелкими телепортами
+local MOVE_MAX_HOP = 180
+local MOVE_MAX_SPEED = 250
+
 local function tweenTo(cf, time)
 	local hrp = getHRP()
 	if not hrp or not cf then
@@ -231,12 +236,39 @@ local function tweenTo(cf, time)
 	return ok
 end
 
+local function moveToCFrame(cf)
+	local hrp = getHRP()
+	if not hrp or not cf then
+		return false
+	end
+	local delta = cf.Position - hrp.Position
+	local d = delta.Magnitude
+	if d <= MOVE_MAX_HOP then
+		return tweenTo(cf, math.max(d / MOVE_MAX_SPEED, 0.05))
+	end
+	-- дальняя дорога: прыжки по MOVE_MAX_HOP стадов
+	for _ = 1, 80 do
+		local cur = getHRP()
+		if not cur then
+			return false
+		end
+		local step = cf.Position - cur.Position
+		local stepD = step.Magnitude
+		if stepD <= MOVE_MAX_HOP then
+			return tweenTo(cf, math.max(stepD / MOVE_MAX_SPEED, 0.05))
+		end
+		cur.CFrame = CFrame.new(cur.Position + step.Unit * MOVE_MAX_HOP)
+		task.wait(0.02)
+	end
+	return false
+end
+
 local function moveToPart(part, offsetY)
 	local hrp = getHRP()
 	if not hrp or not part then
 		return false
 	end
-	return tweenTo(part.CFrame * CFrame.new(0, offsetY or 2, 0), 0.2)
+	return moveToCFrame(part.CFrame * CFrame.new(0, offsetY or 2, 0))
 end
 
 local function touch(part)
@@ -301,16 +333,84 @@ local function velocityTo(part, speed)
 		return false
 	end
 	local delta = part.Position - hrp.Position
+	speed = math.min(speed or 120, MOVE_MAX_SPEED) -- лимит 250 стадов
 	if delta.Magnitude < 1 then
 		EvBV.Velocity = Vector3.zero
 	else
-		EvBV.Velocity = delta.Unit * (speed or 120)
+		EvBV.Velocity = delta.Unit * speed
 	end
 	EvBG.CFrame = workspace.CurrentCamera.CFrame
 	return delta.Magnitude
 end
 
 -- ================================================================== combat ===
+-- виртуальный клик: VirtualInputManager (как в Halloween-скрипте),
+-- фолбэки - mouse1click() и VirtualUser
+local VIM = (function()
+	local ok, s = pcall(function()
+		return game:GetService("VirtualInputManager")
+	end)
+	if ok and s then
+		return s
+	end
+	return nil
+end)()
+
+local function clickScreen(x, y)
+	if VIM then
+		pcall(function()
+			VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+		end)
+		pcall(function()
+			VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+		end)
+		return true
+	end
+	if mouse1click then
+		pcall(mouse1click)
+		return true
+	end
+	pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton1(Vector2.new())
+	end)
+	return false
+end
+
+local function attack(part)
+	-- кликаем по экранной позиции цели: попадает и по мобам, и по тыквам
+	local cam = workspace.CurrentCamera
+	if part then
+		local ok, p = pcall(function()
+			return cam:WorldToScreenPoint(part.Position)
+		end)
+		if ok and p and p.Z > 0 then
+			clickScreen(p.X, p.Y)
+			local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
+			if tool then
+				pcall(function()
+					tool:Activate()
+				end)
+			end
+			return
+		end
+	end
+	clickScreen(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+	local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
+	if tool then
+		pcall(function()
+			tool:Activate()
+		end)
+	end
+end
+
+local function attackBurst(n, delay, part)
+	for _ = 1, (n or 3) do
+		attack(part)
+		task.wait(delay or 0.05)
+	end
+end
+
 local function toolKind(tool)
 	local tip = tostring(tool.ToolTip or ""):lower()
 	local kind = tostring(tool:GetAttribute("ToolType") or ""):lower()
@@ -357,26 +457,6 @@ local function equip(kind)
 		end
 	end
 	return equipped
-end
-
-local function attack()
-	local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
-	if tool then
-		pcall(function()
-			tool:Activate()
-		end)
-	end
-	pcall(function()
-		VirtualUser:CaptureController()
-		VirtualUser:ClickButton1(Vector2.new())
-	end)
-end
-
-local function attackBurst(n, delay)
-	for _ = 1, (n or 3) do
-		attack()
-		task.wait(delay or 0.05)
-	end
 end
 
 local function remotesFolder()
@@ -1051,9 +1131,9 @@ UI.toggle(farmPage, "Auto Farm Level (ближайший моб)", false, functi
 		equip("melee")
 		local hrp = target:FindFirstChild("HumanoidRootPart")
 		if hrp and dist(hrp) > 6 then
-			tweenTo(hrp.CFrame * CFrame.new(0, 0, 2), 0.12)
+			moveToCFrame(hrp.CFrame)
 		end
-		attackBurst(2, 0.05)
+		attackBurst(2, 0.05, hrp)
 	end)
 end)
 
@@ -1122,7 +1202,7 @@ UI.button(farmPage, "PumpkinHunt (Хэллоуин)", function()
 	end
 end)
 
-UI.slider(farmPage, "Скорость ивент-сбора", 20, 300, 120, function(v)
+UI.slider(farmPage, "Скорость ивент-сбора", 20, 250, 120, function(v)
 	Flags.eventSpeed = v
 end)
 
@@ -1165,6 +1245,7 @@ UI.toggle(farmPage, "Auto Collect (ивент-модели)", false, function(on
 				velocityOff()
 			end
 			touch(best)
+			attack(best) -- клик по тыкве (виртуальный клик, как в Halloween-скрипте)
 		end
 	end)
 	if not on then
@@ -1252,18 +1333,28 @@ end)
 UI.toggle(combatPage, "Kill Aura", false, function(on)
 	setLoop("aura", on, 0.15, function()
 		local radius = Flags.auraRadius or 30
-		if #collectEnemies(radius) == 0 then
+		local list = collectEnemies(radius)
+		if #list == 0 then
 			return
 		end
 		equip("melee")
-		attack()
+		-- бьём ближайшего в радиусе: клик по его экранной позиции
+		local best, bestD = nil, math.huge
+		for _, m in ipairs(list) do
+			local d = dist(m:FindFirstChild("HumanoidRootPart"))
+			if d < bestD then
+				best, bestD = m, d
+			end
+		end
+		attack(best and best:FindFirstChild("HumanoidRootPart"))
 	end)
 end)
 
 UI.toggle(combatPage, "Fast Attack", false, function(on)
 	setLoop("fastattack", on, 0.1, function()
 		equip("melee")
-		attack()
+		local t = nearestEnemy(300)
+		attack(t and t:FindFirstChild("HumanoidRootPart"))
 	end)
 end)
 
@@ -1333,9 +1424,9 @@ UI.button(combatPage, "Ударить ближайшего", function()
 	equip("melee")
 	local hrp = target:FindFirstChild("HumanoidRootPart")
 	if hrp then
-		tweenTo(hrp.CFrame * CFrame.new(0, 0, 2), 0.15)
+		moveToCFrame(hrp.CFrame)
 	end
-	attackBurst(4, 0.06)
+	attackBurst(4, 0.06, hrp)
 	setStatus("Удар: " .. target.Name, Theme.ok)
 end)
 
@@ -1689,7 +1780,7 @@ UI.toggle(playerPage, "Fly", false, function(on)
 			if dir.Magnitude > 0 then
 				dir = dir.Unit
 			end
-			FlyBV.Velocity = dir * (Flags.flySpeed or 80)
+			FlyBV.Velocity = dir * math.min(Flags.flySpeed or 80, MOVE_MAX_SPEED)
 			FlyBG.CFrame = cam.CFrame
 		end)
 	else
@@ -1706,7 +1797,7 @@ UI.toggle(playerPage, "Fly", false, function(on)
 	end
 end)
 
-UI.slider(playerPage, "Fly Speed", 20, 300, 80, function(v)
+UI.slider(playerPage, "Fly Speed", 20, 250, 80, function(v)
 	Flags.flySpeed = v
 end)
 
