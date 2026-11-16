@@ -6,7 +6,7 @@
 	Запуск (или через QuantumOnyx.lua -> "Запустить QuantumLite"):
 		loadstring(game:HttpGet("https://raw.githubusercontent.com/kolyamips/onyxcracked123123/main/Games/QuantumLite.lua"))()
 
-	RightShift - скрыть/показать окно. Клик по строке включает/выключает тумблер.
+	RightShift / RightControl - скрыть/показать окно. Клик по строке включает/выключает тумблер.
 --]]
 
 -- ================================================================ services ===
@@ -1323,6 +1323,108 @@ UI.button(farmPage, "Собрать ближайший сундук", function()
 	end
 end)
 
+-- ------------------------------------------------------------ Боссы и острова ---
+local function isBossName(n)
+	n = tostring(n):lower()
+	return n:find("boss") ~= nil
+		or n:find("king") ~= nil
+		or n:find("leader") ~= nil
+		or n:find("admiral") ~= nil
+		or n:find("captain") ~= nil
+		or n:find("yeti") ~= nil
+end
+
+UI.slider(farmPage, "Радиус боссов", 100, 3000, 1000, function(v)
+	Flags.bossRadius = v
+end)
+
+UI.toggle(farmPage, "Auto Farm Bosses", false, function(on)
+	setLoop("bosses", on, 0.2, function()
+		local radius = Flags.bossRadius or 1000
+		local best, bestD = nil, math.huge
+		for _, m in ipairs(collectEnemies(radius)) do
+			if isBossName(m.Name) then
+				local d = dist(m:FindFirstChild("HumanoidRootPart"))
+				if d < bestD then
+					best, bestD = m, d
+				end
+			end
+		end
+		if not best then
+			return
+		end
+		equip("melee")
+		local hrp = best:FindFirstChild("HumanoidRootPart")
+		if hrp and dist(hrp) > 6 then
+			moveToCFrame(hrp.CFrame)
+		end
+		attackBurst(2, 0.05, hrp)
+	end)
+end)
+
+-- Тур по островам через workspace.NPCs
+local tourList, tourIdx = {}, 0
+local function refreshTour()
+	tourList = {}
+	local npcs = workspace:FindFirstChild("NPCs")
+	if npcs then
+		for _, n in ipairs(npcs:GetChildren()) do
+			local p = partOf(n)
+			if p then
+				tourList[#tourList + 1] = p
+			end
+		end
+	end
+	return #tourList
+end
+
+UI.button(farmPage, "ТП: следующий остров (NPC)", function()
+	if #tourList == 0 then
+		refreshTour()
+	end
+	if #tourList == 0 then
+		setStatus("workspace.NPCs не найден", Theme.muted)
+		return
+	end
+	tourIdx = tourIdx % #tourList + 1
+	moveToCFrame(tourList[tourIdx].CFrame * CFrame.new(0, 3, 0))
+	setStatus("Остров " .. tourIdx .. "/" .. #tourList, Theme.ok)
+end)
+
+UI.toggle(farmPage, "Auto Island Tour", false, function(on)
+	setLoop("tour", on, 6, function()
+		if #tourList == 0 then
+			refreshTour()
+		end
+		if #tourList == 0 then
+			return
+		end
+		tourIdx = tourIdx % #tourList + 1
+		moveToCFrame(tourList[tourIdx].CFrame * CFrame.new(0, 3, 0))
+	end)
+end)
+
+UI.toggle(farmPage, "Auto Buy Haki (Buso)", false, function(on)
+	setLoop("buyhaki", on, 6, function()
+		local res = commF("BuyHaki", "Buso")
+		if type(res) == "string" and res ~= "" then
+			setStatus("BuyHaki: " .. res, Theme.ok)
+		end
+	end)
+end)
+
+UI.toggle(farmPage, "Auto Buy Стили боя", false, function(on)
+	setLoop("buystyles", on, 5, function()
+		local list = { "BlackLeg", "Electro", "WaterKungFu", "DragonClaw", "Superhuman" }
+		local idx = (Flags.styleIdx or 0) % #list + 1
+		Flags.styleIdx = idx
+		local res = commF(list[idx])
+		if type(res) == "string" and res ~= "" then
+			setStatus(list[idx] .. ": " .. res, Theme.ok)
+		end
+	end)
+end)
+
 -- ----------------------------------------------------------------- Combat ---
 local combatPage = addTab("Combat")
 
@@ -1430,6 +1532,35 @@ UI.button(combatPage, "Ударить ближайшего", function()
 	setStatus("Удар: " .. target.Name, Theme.ok)
 end)
 
+UI.textbox(combatPage, "Скиллы (через запятую)", "Z,X", function(text)
+	Flags.skillKeys = text
+end)
+
+UI.slider(combatPage, "Пауза скиллов (мс)", 50, 1000, 200, function(v)
+	Flags.skillDelay = v / 1000
+end)
+
+UI.toggle(combatPage, "Auto Skill Spam", false, function(on)
+	setLoop("skills", on, 0.1, function()
+		if not VIM then
+			return
+		end
+		for k in tostring(Flags.skillKeys or "Z,X"):gmatch("[^,%s]+") do
+			local ok, code = pcall(function()
+				return Enum.KeyCode[k]
+			end)
+			if ok and code then
+				pcall(function()
+					VIM:SendKeyEvent(true, code, false, game)
+					task.wait(Flags.skillDelay or 0.2)
+					VIM:SendKeyEvent(false, code, false, game)
+				end)
+				task.wait(0.05)
+			end
+		end
+	end)
+end)
+
 -- ----------------------------------------------------------------- Visual ---
 local visualPage = addTab("Visual")
 
@@ -1471,6 +1602,43 @@ UI.toggle(visualPage, "Fruit Notifier", false, function(on)
 			if not Flags.seenFruits[f] then
 				Flags.seenFruits[f] = true
 				notify("Фрукт: " .. f.Name)
+			end
+		end
+	end)
+end)
+
+UI.slider(visualPage, "Уровень моря (Y)", -50, 200, 0, function(v)
+	Flags.seaLevel = v
+end)
+
+UI.toggle(visualPage, "Walk On Water", false, function(on)
+	setLoop("seawalk", on, 0.1, function()
+		local hrp = getHRP()
+		if not hrp then
+			return
+		end
+		local level = Flags.seaLevel or 0
+		local p = hrp.Position
+		if p.Y < level then
+			-- подъём малым шагом (в рамках лимита 180 стадов)
+			hrp.CFrame = CFrame.new(p.X, level + 2, p.Z) * (hrp.CFrame - hrp.CFrame.Position)
+		end
+	end)
+end)
+
+UI.toggle(visualPage, "TP к новому фрукту", false, function(on)
+	setLoop("fruittp", on, 1.5, function()
+		Flags.seenFruitTp = Flags.seenFruitTp or {}
+		for _, f in ipairs(findFruits()) do
+			if not Flags.seenFruitTp[f.Name] then
+				Flags.seenFruitTp[f.Name] = true
+				local p = partOf(f)
+				if p and dist(p) < 5000 then
+					moveToPart(p, 3)
+					touch(p)
+					setStatus("Забрал фрукт: " .. f.Name, Theme.ok)
+				end
+				return
 			end
 		end
 	end)
@@ -1936,7 +2104,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
 		return
 	end
-	if input.KeyCode == Enum.KeyCode.RightShift then
+	if input.KeyCode == Enum.KeyCode.RightShift
+		or input.KeyCode == Enum.KeyCode.RightControl then
 		screen.Enabled = not screen.Enabled
 	end
 end)
